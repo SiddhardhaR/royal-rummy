@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Royal Rummy — Multiplayer</title>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<!-- ═══════════════════ LOBBY ═══════════════════ -->
+<div id="lobby" class="screen active">
+  <div class="lobby-box">
+    <div class="lobby-suits">♠ ♥ ♦ ♣</div>
+    <div class="lobby-title">Royal Rummy</div>
+
+    <div>
+      <div class="field-label">Your Name</div>
+      <input id="playerName" class="field-input" type="text" placeholder="Enter your name…" maxlength="18"/>
+    </div>
+
+    <div>
+      <div class="field-label">Avatar</div>
+      <div class="avatar-row" id="avatarRow">
+        <div class="avatar-opt selected" data-v="🦊">🦊</div>
+        <div class="avatar-opt" data-v="🐺">🐺</div>
+        <div class="avatar-opt" data-v="🦁">🦁</div>
+        <div class="avatar-opt" data-v="🐯">🐯</div>
+        <div class="avatar-opt" data-v="🦅">🦅</div>
+        <div class="avatar-opt" data-v="🐉">🐉</div>
+        <div class="avatar-opt" data-v="🦄">🦄</div>
+        <div class="avatar-opt" data-v="🎭">🎭</div>
+        <div class="avatar-opt" data-v="🐸">🐸</div>
+        <div class="avatar-opt" data-v="🦋">🦋</div>
+      </div>
+    </div>
+
+    <div id="lobbyError" class="error-msg"></div>
+
+    <button class="btn btn-gold" id="createBtn">✦ Create New Room</button>
+    <div class="divider">or join existing</div>
+    <div class="join-row">
+      <input id="joinCode" class="field-input" type="text" placeholder="Room code…" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;"/>
+      <button class="btn btn-sm" id="joinBtn">Join</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ GAME ═══════════════════ -->
+<div id="game" class="screen">
+  <div class="table-inner"></div>
+
+  <!-- Top Bar -->
+  <div id="topBar">
+    <div class="topbar-left" id="tbRoomId">Room: —</div>
+    <div class="topbar-center" id="tbRound">Round 1</div>
+    <div class="topbar-right">
+      <button class="topbar-btn" id="tbLeave">Leave</button>
+    </div>
+  </div>
+
+  <!-- Waiting Room Overlay (shown until game starts) -->
+  <div id="waitingOverlay">
+    <div class="waiting-box">
+      <div class="waiting-title">Waiting for players…</div>
+      <div class="waiting-room-code" id="wRoomCode">—</div>
+      <div class="waiting-sub">Share this code with friends (2–10 players)</div>
+      <div class="player-list" id="wPlayerList"></div>
+      <div id="wError" class="error-msg" style="margin-bottom:8px;"></div>
+      <button class="btn btn-gold" id="wStartBtn" style="display:none;width:100%">▶ Start Game</button>
+      <div id="wWaitMsg" style="color:rgba(255,255,255,0.5);font-size:0.85rem;">Waiting for host to start…</div>
+    </div>
+  </div>
+
+  <!-- Player Zones (rendered dynamically) -->
+  <div id="playerZones"></div>
+
+  <!-- Center -->
+  <div id="centerZone">
+    <div class="piles-row">
+      <div class="pile-wrapper">
+        <div class="pile-label">Deck</div>
+        <div class="deck-stack" id="deckStack" title="Draw from deck">
+          <div class="card"><div class="card-back"><div class="card-back-inner"></div></div></div>
+          <div class="card"><div class="card-back"><div class="card-back-inner"></div></div></div>
+          <div class="card" id="deckTop"><div class="card-back"><div class="card-back-inner"></div></div><span class="deck-count-badge" id="deckCount">52</span></div>
+        </div>
+      </div>
+      <div class="pile-wrapper">
+        <div class="pile-label">Discard</div>
+        <div class="discard-pile" id="discardPile" title="Draw from discard">
+          <div class="discard-empty" id="discardEmpty">⊕</div>
+        </div>
+      </div>
+    </div>
+    <div id="statusBar">Waiting for game to start…</div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div id="actionBtns">
+    <button class="action-btn knock-btn" id="knockBtn" disabled>Knock / Gin</button>
+    <button class="action-btn" id="sortBtn">Sort Hand</button>
+  </div>
+
+  <!-- Chat -->
+  <div id="chatPanel">
+    <div id="chatMessages"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" type="text" placeholder="Say something…" maxlength="180"/>
+      <button id="chatSend">➤</button>
+    </div>
+  </div>
+
+  <!-- Round End Overlay -->
+  <div id="roundEndOverlay">
+    <div class="round-end-box">
+      <div class="round-end-title" id="reTitle">Round Over</div>
+      <div class="round-end-results" id="reResults"></div>
+      <div class="next-round-msg" id="reNext">Next round starting in 6s…</div>
+    </div>
+  </div>
+
+  <!-- Game Over Overlay -->
+  <div id="gameOverOverlay">
+    <div class="game-over-box">
+      <div class="game-over-title">🏆 Game Over</div>
+      <div class="game-over-winner" id="goWinner"></div>
+      <table class="scores-table" id="goScores">
+        <tr><th>Player</th><th>Score</th></tr>
+      </table>
+      <button class="btn btn-gold" id="goPlayAgain" style="margin-top:8px;">Play Again (New Room)</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
