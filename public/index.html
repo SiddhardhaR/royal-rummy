@@ -64,7 +64,7 @@
     <div class="waiting-box">
       <div class="waiting-title">Waiting for players…</div>
       <div class="waiting-room-code" id="wRoomCode">—</div>
-      <div class="waiting-sub">Share this code with friends (2–10 players)</div>
+      <div class="waiting-sub">Share this code with friends (2–6 players)</div>
       <div class="player-list" id="wPlayerList"></div>
       <div id="wError" class="error-msg" style="margin-bottom:8px;"></div>
       <button class="btn btn-gold" id="wStartBtn" style="display:none;width:100%">▶ Start Game</button>
@@ -77,6 +77,9 @@
 
   <!-- Center -->
   <div id="centerZone">
+    <div id="meldTable">
+      <div class="meld-table-empty">No melds on the table yet</div>
+    </div>
     <div class="piles-row">
       <div class="pile-wrapper">
         <div class="pile-label">Deck</div>
@@ -98,7 +101,10 @@
 
   <!-- Action Buttons -->
   <div id="actionBtns">
-    <button class="action-btn knock-btn" id="knockBtn" disabled>Knock / Gin</button>
+    <button class="action-btn" id="meldBtn" disabled>Meld Selected</button>
+    <button class="action-btn" id="layoffBtn" disabled>Lay Off</button>
+    <button class="action-btn discard-btn" id="discardBtn" disabled>Discard</button>
+    <button class="action-btn goout-btn" id="goOutBtn" disabled>Declare</button>
     <button class="action-btn" id="sortBtn">Sort Hand</button>
   </div>
 

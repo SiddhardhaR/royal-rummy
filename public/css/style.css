@@ -215,28 +215,28 @@ body {
 /* ── SEAT POSITIONS ── */
 /* Seat 0 = ME = bottom center */
 .seat-0 {
-  bottom: 14px;
+  bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   flex-direction: column-reverse;
 }
 /* Seat 1 = left middle */
 .seat-1 {
-  left: 14px;
+  left: 20px;
   top: 50%;
   transform: translateY(-50%);
   flex-direction: row;
 }
 /* Seat 2 = top center */
 .seat-2 {
-  top: 14px;
+  top: 52px;
   left: 50%;
   transform: translateX(-50%);
   flex-direction: column;
 }
 /* Seat 3 = right middle */
 .seat-3 {
-  right: 14px;
+  right: 20px;
   top: 50%;
   transform: translateY(-50%);
   flex-direction: row-reverse;
@@ -335,6 +335,19 @@ body {
 .hand-container {
   display: flex;
   position: relative;
+}
+
+.free-hand-surface {
+  width: min(720px, calc(100vw - 360px));
+  height: 170px;
+  min-width: 360px;
+  display: block;
+  border: 2px dashed rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.12);
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.18);
+  overflow: hidden;
+  touch-action: none;
 }
 
 /* Horizontal hand (top/bottom seats) — cards overlap left */
@@ -455,25 +468,29 @@ body {
 
 /* My cards — interactive */
 .card-in-hand.mine {
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  position: absolute;
+  cursor: grab;
+  touch-action: none;
+  transition: box-shadow 0.15s, outline-color 0.15s;
 }
 .card-in-hand.mine:hover {
-  transform: translateY(-14px) scale(1.04);
   box-shadow: 2px 6px 18px rgba(0,0,0,0.55);
-  z-index: 10;
 }
 .card-in-hand.mine.selected {
-  transform: translateY(-20px) scale(1.05);
-  box-shadow: 0 0 0 3px var(--gold), 2px 8px 20px rgba(0,0,0,0.6);
-  z-index: 11;
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.25), 2px 8px 20px rgba(0,0,0,0.6);
+}
+.card-in-hand.mine.dragging {
+  cursor: grabbing;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.65);
 }
 .card-in-hand { position: relative; }
 
 /* ── Center Zone ── */
 #centerZone {
   position: absolute;
-  top: 50%;
+  top: 48%;
   left: 50%;
   transform: translate(-50%, -50%);
   display: flex;
@@ -481,6 +498,68 @@ body {
   align-items: center;
   gap: 12px;
   z-index: 3;
+}
+
+#meldTable {
+  width: min(720px, calc(100vw - 420px));
+  min-width: 360px;
+  min-height: 132px;
+  max-height: 250px;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.12);
+  box-shadow: inset 0 0 22px rgba(0,0,0,0.18);
+}
+
+.meld-table-empty {
+  align-self: center;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.82rem;
+  letter-spacing: 0.4px;
+}
+
+.meld-group {
+  border: 2px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(255,255,255,0.07);
+  cursor: pointer;
+}
+
+.meld-group.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(240,192,64,0.25);
+}
+
+.meld-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.meld-cards {
+  display: flex;
+  align-items: center;
+}
+
+.meld-card {
+  transform: scale(0.72);
+  transform-origin: top left;
+  margin-right: -18px;
+}
+
+.meld-card:last-child {
+  margin-right: -20px;
 }
 
 .piles-row {
@@ -569,7 +648,7 @@ body {
 /* ── Action Buttons (bottom-right) ── */
 #actionBtns {
   position: absolute;
-  bottom: 130px;
+  bottom: 236px;
   right: 28px;
   display: flex;
   flex-direction: column;
@@ -592,8 +671,10 @@ body {
 .action-btn:hover { background: #d4cfc5; border-color: #888; }
 .action-btn:active { transform: scale(0.96); }
 .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.action-btn.knock-btn { background: #e8d080; border-color: #b8960b; }
-.action-btn.knock-btn:hover { background: #f0dc90; }
+.action-btn.discard-btn { background: #e8d080; border-color: #b8960b; }
+.action-btn.discard-btn:hover { background: #f0dc90; }
+.action-btn.goout-btn { background: #bcd8f0; border-color: #6d9dca; }
+.action-btn.goout-btn:hover { background: #d3e7f8; }
 
 /* ── Top Bar ── */
 #topBar {
@@ -800,4 +881,42 @@ body {
   animation: pulse 1.5s infinite;
   background: #2d9449 !important;
   border-color: var(--gold) !important;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --card-w: 60px;
+    --card-h: 84px;
+  }
+
+  .free-hand-surface {
+    width: calc(100vw - 32px);
+    min-width: 0;
+    height: 150px;
+  }
+
+  #meldTable {
+    width: calc(100vw - 32px);
+    min-width: 0;
+    max-height: 190px;
+  }
+
+  #centerZone {
+    top: 45%;
+  }
+
+  #actionBtns {
+    right: 12px;
+    bottom: 196px;
+  }
+
+  #chatPanel {
+    width: 230px;
+    height: 170px;
+  }
+
+  .seat-1,
+  .seat-3 {
+    top: 43%;
+  }
 }

@@ -1,63 +1,65 @@
-# 🃏 Royal Rummy — Multiplayer Online
+# Royal Rummy - Multiplayer Online
 
-Real-time multiplayer Gin Rummy for **2–10 players**.
+Real-time multiplayer 13-card Indian Rummy for 2-6 players.
 
----
+## Quick Deploy
 
-## 🚀 Quick Deploy (Railway — Free, ~2 min)
+### Railway
 
-1. Go to [railway.app](https://railway.app) and sign in with GitHub
-2. Click **"New Project" → "Deploy from GitHub repo"**  
-   *(or use "Deploy from template" → Node.js)*
-3. Upload/push this folder to a GitHub repo
-4. Set **Start Command**: `npm start`
-5. Railway auto-detects Node.js, installs deps, and gives you a URL like:
-   `https://royal-rummy-production.up.railway.app`
-6. Share that URL — done! 🎉
+1. Go to [railway.app](https://railway.app) and sign in with GitHub.
+2. Create a new project from this GitHub repo.
+3. Set the start command to `npm start`.
+4. Railway installs dependencies and gives you a public URL.
 
----
+### Render
 
-## 🚀 Quick Deploy (Render — also free)
+1. Go to [render.com](https://render.com) and create a new Web Service.
+2. Connect this repo.
+3. Use `npm install` as the build command.
+4. Use `node server/index.js` as the start command.
 
-1. Push this folder to a GitHub repo
-2. Go to [render.com](https://render.com) → New → Web Service
-3. Connect repo → Build command: `npm install` → Start command: `node server/index.js`
-4. Free tier URL provided instantly
-
----
-
-## 🖥 Run Locally
+## Run Locally
 
 ```bash
-# Install deps
 npm install
-
-# Start server
 npm start
-# → http://localhost:3000
 ```
 
----
+Then open `http://localhost:3000`.
 
-## 🎮 How to Play (Gin Rummy)
+## How to Play
 
-1. **Create** a room → share the room code with friends
-2. **Host** clicks "Start Game" when everyone has joined
-3. On your turn:
-   - **Draw** a card from the Deck or Discard pile
-   - **Select** a card from your hand (click once to highlight, click again to discard)
-4. **Knock** button: if your unmatched deadwood ≤ 10, discard a card and knock
-5. **Gin**: knock with 0 deadwood for +25 bonus points
-6. First player to **100 points** wins!
+- Each player gets 13 cards.
+- The game uses 2 decks with printed jokers.
+- One random rank is selected as the wild joker for the hand.
+- Draw from the stock or discard pile to start your turn.
+- Select 3 or more cards and create a group:
+  - Pure sequence: 3 or more consecutive cards of the same suit without printed or wild jokers.
+  - Impure sequence: 3 or more consecutive cards of the same suit with printed or wild jokers filling gaps.
+  - Set: 3 or more cards of the same rank and different suits, with jokers allowed.
+- A valid declaration requires all 13 cards to be grouped, at least 2 sequences, and at least 1 pure sequence.
+- Discard one card to end your turn.
+- If you drew from discard, you cannot discard that exact card in the same turn.
+- Empty your hand with a valid declaration to win the hand.
 
-### Card Rules
-- 2–4 players: 1 deck, 10 cards each
-- 5–7 players: 2 decks, 8 cards each  
-- 8–10 players: 3 decks, 7 cards each
+## Scoring
 
----
+The winner receives the total penalty points from opponents.
+
+- Aces: 10 points
+- Number cards: rank value
+- Face cards: 10 points
+- Printed and wild jokers: 0 points
+- If a losing player does not have 2 sequences including 1 pure sequence, all their cards count, capped at 80.
+- If a losing player has the required sequences, only ungrouped cards count, capped at 80.
+- Target score is 101 points.
+
+## Card Handling
+
+Your cards are draggable on your personal play surface. You can overlap, swap, and sort them visually without changing server ownership. Table melds remain server-validated so multiplayer rules stay fair.
 
 ## Tech Stack
-- **Node.js** + **Express** (server)
-- **Socket.io** (real-time multiplayer)
-- Vanilla HTML/CSS/JS (no framework needed)
+
+- Node.js and Express
+- Socket.io
+- Vanilla HTML, CSS, and JavaScript

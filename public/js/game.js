@@ -1,17 +1,20 @@
-// ── Royal Rummy Client ──────────────────────────────────────────────────────
 const socket = io();
 
-// State
 let myId = null;
 let myName = '';
 let myAvatar = '🦊';
 let roomId = null;
 let gameState = null;
-let selectedCardId = null;
 let isMyTurn = false;
 let currentPhase = 'draw';
+let selectedCardIds = new Set();
+let selectedMeldId = null;
+let cardLayouts = new Map();
+let zCounter = 20;
+let dragState = null;
 
-// ── DOM refs ──────────────────────────────────────────────────────────────────
+const HAND_ROW_Y = 38;
+
 const lobbyEl         = document.getElementById('lobby');
 const gameEl          = document.getElementById('game');
 const createBtn       = document.getElementById('createBtn');
@@ -33,13 +36,16 @@ const tbRound         = document.getElementById('tbRound');
 const tbLeave         = document.getElementById('tbLeave');
 
 const playerZonesEl   = document.getElementById('playerZones');
+const meldTable       = document.getElementById('meldTable');
 const deckStack       = document.getElementById('deckStack');
 const deckCount       = document.getElementById('deckCount');
 const discardPile     = document.getElementById('discardPile');
 const discardEmpty    = document.getElementById('discardEmpty');
 const statusBar       = document.getElementById('statusBar');
-const actionBtns      = document.getElementById('actionBtns');
-const knockBtn        = document.getElementById('knockBtn');
+const meldBtn         = document.getElementById('meldBtn');
+const layoffBtn       = document.getElementById('layoffBtn');
+const discardBtn      = document.getElementById('discardBtn');
+const goOutBtn        = document.getElementById('goOutBtn');
 const sortBtn         = document.getElementById('sortBtn');
 
 const chatMessages    = document.getElementById('chatMessages');
@@ -56,7 +62,27 @@ const goWinner        = document.getElementById('goWinner');
 const goScores        = document.getElementById('goScores');
 const goPlayAgain     = document.getElementById('goPlayAgain');
 
-// ── Avatar selection ──────────────────────────────────────────────────────────
+const SEAT_CLASSES = ['seat-0', 'seat-1', 'seat-2', 'seat-3', 'seat-4', 'seat-5'];
+const SEAT_MAP = {
+  2: [0, 2],
+  3: [0, 1, 2],
+  4: [0, 1, 2, 3],
+  5: [0, 1, 4, 5, 3],
+  6: [0, 1, 4, 2, 5, 3]
+};
+const SEAT_ORIENTATION = {
+  'seat-0': 'h',
+  'seat-1': 'v',
+  'seat-2': 'h',
+  'seat-3': 'v',
+  'seat-4': 'h',
+  'seat-5': 'h'
+};
+const SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
+const SUIT_COLOR = { S: 'black', H: 'red', D: 'red', C: 'black' };
+const SUIT_ORDER = ['S', 'H', 'D', 'C'];
+const RANK_ORDER = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
 avatarRow.querySelectorAll('.avatar-opt').forEach(el => {
   el.addEventListener('click', () => {
     avatarRow.querySelectorAll('.avatar-opt').forEach(o => o.classList.remove('selected'));
@@ -65,7 +91,6 @@ avatarRow.querySelectorAll('.avatar-opt').forEach(el => {
   });
 });
 
-// ── Lobby actions ─────────────────────────────────────────────────────────────
 createBtn.addEventListener('click', () => {
   myName = playerNameEl.value.trim() || 'Player';
   socket.emit('create', { name: myName, avatar: myAvatar });
@@ -74,49 +99,46 @@ createBtn.addEventListener('click', () => {
 joinBtn.addEventListener('click', () => {
   myName = playerNameEl.value.trim() || 'Player';
   const code = joinCode.value.trim().toUpperCase();
-  if (!code) { lobbyError.textContent = 'Enter a room code'; return; }
+  if (!code) {
+    showError('Enter a room code');
+    return;
+  }
   socket.emit('join', { roomId: code, name: myName, avatar: myAvatar });
 });
 
 joinCode.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
 playerNameEl.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
-
-// Auto uppercase room code
 joinCode.addEventListener('input', () => { joinCode.value = joinCode.value.toUpperCase(); });
 
-// ── Socket: joined room ───────────────────────────────────────────────────────
 socket.on('joined', ({ roomId: rid }) => {
   myId = socket.id;
   roomId = rid;
-  lobbyError.textContent = '';
+  showError('');
   switchScreen('game');
   tbRoomId.textContent = `Room: ${rid}`;
   wRoomCode.textContent = rid;
   waitingOverlay.style.display = 'flex';
 });
 
-socket.on('err', msg => {
-  lobbyError.textContent = msg;
-  wError.textContent = msg;
-});
+socket.on('err', msg => showError(msg));
 
-// ── Socket: game state ────────────────────────────────────────────────────────
 socket.on('state', state => {
   gameState = state;
   myId = socket.id;
-
-  tbRound.textContent = `Round ${state.round || 1}`;
+  tbRound.textContent = `Round ${state.round || 1} | Wild ${state.wildJokerRank || '-'} | Target ${state.targetScore || 101}`;
 
   const me = state.players.find(p => p.isMe);
-  isMyTurn = me && me.isTurn;
+  isMyTurn = !!(me && me.isTurn);
   currentPhase = state.phase;
+  reconcileSelection(me?.hand || []);
+  reconcileLayouts(me?.hand || []);
 
-  // Update waiting overlay
   updateWaitingOverlay(state);
 
   if (state.state === 'playing' || state.state === 'roundEnd') {
     waitingOverlay.style.display = 'none';
     renderTable(state);
+    renderMeldTable(state);
     updateDeck(state);
     updateDiscard(state);
     updateStatus(state);
@@ -125,50 +147,54 @@ socket.on('state', state => {
 });
 
 socket.on('started', () => {
-  waitingOverlay.style.display = 'none';
   roundEndOverlay.classList.remove('show');
-  selectedCardId = null;
+  gameOverOverlay.classList.remove('show');
+  selectedCardIds.clear();
+  selectedMeldId = null;
+  cardLayouts.clear();
 });
 
-socket.on('roundEnd', ({ type, results, scores, knockerName }) => {
-  selectedCardId = null;
-  let title = '';
-  if (type === 'gin') title = `🎉 GIN! ${knockerName} goes out!`;
-  else if (type === 'knock') title = `🤜 Knock! ${knockerName} knocks!`;
-  else title = `✅ ${knockerName} goes out!`;
+socket.on('roundEnd', ({ type, results, scores, winnerName, points, doubled }) => {
+  selectedCardIds.clear();
+  selectedMeldId = null;
+  if (type === 'stalemate') {
+    reTitle.textContent = 'Stalemate. No points awarded.';
+  } else {
+    reTitle.textContent = `${winnerName} wins the hand for ${points} point${points === 1 ? '' : 's'}`;
+  }
 
-  reTitle.textContent = title;
   reResults.innerHTML = '';
-  for (const r of results) {
+  for (const result of results) {
     const row = document.createElement('div');
     row.className = 'result-row';
     row.innerHTML = `
-      <span>${r.name}${r.isKnocker ? ' 🤜' : ''}</span>
-      <span class="result-deadwood">Deadwood: ${r.deadwood}</span>
-      <span style="color:#aed6b0">Score: ${scores[r.id] || 0}</span>
+      <span>${escHtml(result.name)}${result.isWinner ? ' - Winner' : ''}</span>
+      <span class="result-deadwood">Hand: ${result.remaining}</span>
+      <span style="color:#aed6b0">Score: ${scores[result.id] || 0}</span>
     `;
     reResults.appendChild(row);
   }
-  reNext.textContent = 'Next round starting in 6s…';
+
+  reNext.textContent = 'Next round starting in 6s...';
   roundEndOverlay.classList.add('show');
 
   let secs = 6;
-  const t = setInterval(() => {
+  const timer = setInterval(() => {
     secs--;
-    reNext.textContent = `Next round starting in ${secs}s…`;
-    if (secs <= 0) clearInterval(t);
+    reNext.textContent = `Next round starting in ${secs}s...`;
+    if (secs <= 0) clearInterval(timer);
   }, 1000);
 });
 
 socket.on('gameOver', ({ winnerName, scores }) => {
   roundEndOverlay.classList.remove('show');
-  goWinner.textContent = `🏆 Winner: ${winnerName}`;
+  goWinner.textContent = `Winner: ${winnerName}`;
   goScores.innerHTML = '<tr><th>Player</th><th>Score</th></tr>';
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   for (const [pid, score] of sorted) {
     const player = gameState?.players.find(p => p.id === pid);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${player?.name || pid}</td><td>${score}</td>`;
+    tr.innerHTML = `<td>${escHtml(player?.name || pid)}</td><td>${score}</td>`;
     goScores.appendChild(tr);
   }
   gameOverOverlay.classList.add('show');
@@ -176,20 +202,18 @@ socket.on('gameOver', ({ winnerName, scores }) => {
 
 socket.on('chat', msg => addChat(msg));
 
-// ── Waiting overlay ───────────────────────────────────────────────────────────
 function updateWaitingOverlay(state) {
   if (state.state !== 'waiting') return;
   waitingOverlay.style.display = 'flex';
-
   wPlayerList.innerHTML = '';
-  for (const p of state.players) {
+
+  for (const player of state.players) {
     const div = document.createElement('div');
     div.className = 'player-list-item';
     div.innerHTML = `
-      <span class="pli-avatar">${p.avatar}</span>
-      <span class="pli-name">${p.name}</span>
-      ${state.isHost && p.id === socket.id ? '<span class="pli-host">HOST</span>' : ''}
-      ${!state.isHost && p.seatIndex === 0 ? '<span class="pli-host">HOST</span>' : ''}
+      <span class="pli-avatar">${escHtml(player.avatar)}</span>
+      <span class="pli-name">${escHtml(player.name)}</span>
+      ${player.seatIndex === 0 ? '<span class="pli-host">HOST</span>' : ''}
     `;
     wPlayerList.appendChild(div);
   }
@@ -198,11 +222,7 @@ function updateWaitingOverlay(state) {
     wStartBtn.style.display = 'block';
     wWaitMsg.style.display = 'none';
     wStartBtn.disabled = state.players.length < 2;
-    if (state.players.length >= 2) {
-      wStartBtn.classList.add('btn-start-pulse');
-    } else {
-      wStartBtn.classList.remove('btn-start-pulse');
-    }
+    wStartBtn.classList.toggle('btn-start-pulse', state.players.length >= 2);
   } else {
     wStartBtn.style.display = 'none';
     wWaitMsg.style.display = 'block';
@@ -211,134 +231,66 @@ function updateWaitingOverlay(state) {
 
 wStartBtn.addEventListener('click', () => socket.emit('start'));
 
-// ── Table rendering ───────────────────────────────────────────────────────────
-// Seat layout for N players.
-// Index 0 = me (always bottom-center). Others are distributed around table.
-//
-// For 2p:  me=bottom, opp=top
-// For 3p:  me=bottom, left, top
-// For 4p:  me=bottom, left, top, right
-// For 5p:  me=bottom, left, top-left, top-right, right
-// For 6p:  me=bottom, left, top-left, top-center, top-right, right
-// For 7p:  me=bottom, bottom-left, left, top-left, top-right, right, bottom-right
-// For 8p:  me=bottom, bottom-left, left, top-left, top-center, top-right, right, bottom-right
-// For 9p:  above + mid-left
-// For 10p: above + mid-left + mid-right
-
-// CSS classes per seat index (0=me, always 'seat-0')
-const SEAT_CLASSES = [
-  'seat-0',  // 0 = me, bottom center
-  'seat-1',  // 1 = left
-  'seat-2',  // 2 = top center
-  'seat-3',  // 3 = right
-  'seat-4',  // 4 = top-left
-  'seat-5',  // 5 = top-right
-  'seat-6',  // 6 = bottom-left
-  'seat-7',  // 7 = bottom-right
-  'seat-8',  // 8 = mid-left upper
-  'seat-9',  // 9 = mid-right upper
-];
-
-// Which CSS seat each logical position maps to, per player count
-// Index: logical position from my POV (0=me, 1=next clockwise, etc.)
-const SEAT_MAP = {
-  2:  [0, 2],
-  3:  [0, 1, 2],
-  4:  [0, 1, 2, 3],
-  5:  [0, 1, 4, 5, 3],
-  6:  [0, 1, 4, 2, 5, 3],
-  7:  [0, 6, 1, 4, 5, 3, 7],
-  8:  [0, 6, 1, 4, 2, 5, 3, 7],
-  9:  [0, 6, 8, 1, 4, 2, 5, 3, 7],
-  10: [0, 6, 8, 1, 4, 2, 5, 3, 9, 7],
-};
-
-// Hand orientation per CSS seat
-// 'h' = horizontal spread, 'v' = vertical stack
-const SEAT_ORIENTATION = {
-  'seat-0': 'h',
-  'seat-1': 'v',
-  'seat-2': 'h',
-  'seat-3': 'v',
-  'seat-4': 'h',
-  'seat-5': 'h',
-  'seat-6': 'h',
-  'seat-7': 'h',
-  'seat-8': 'v',
-  'seat-9': 'v',
-};
-
 function renderTable(state) {
   playerZonesEl.innerHTML = '';
 
-  const n = state.players.length;
+  const playerCount = state.players.length;
   const meIdx = state.players.findIndex(p => p.isMe);
   if (meIdx === -1) return;
 
-  const map = SEAT_MAP[n] || SEAT_MAP[10];
-
-  // Reorder players so me is first
+  const map = SEAT_MAP[playerCount] || SEAT_MAP[4];
   const ordered = [];
-  for (let i = 0; i < n; i++) {
-    ordered.push(state.players[(meIdx + i) % n]);
+  for (let i = 0; i < playerCount; i++) {
+    ordered.push(state.players[(meIdx + i) % playerCount]);
   }
 
-  for (let i = 0; i < ordered.length; i++) {
-    const player = ordered[i];
-    const seatClass = SEAT_CLASSES[map[i]] || `seat-${i}`;
+  ordered.forEach((player, index) => {
+    const seatClass = SEAT_CLASSES[map[index]] || `seat-${index}`;
     const orient = SEAT_ORIENTATION[seatClass] || 'h';
-    const isMe = player.isMe;
-
     const zone = document.createElement('div');
     zone.className = `player-zone ${seatClass}${player.isTurn ? ' my-turn' : ''}`;
 
-    // Avatar block
     const avatarDiv = document.createElement('div');
     avatarDiv.className = 'player-avatar';
     avatarDiv.innerHTML = `
-      <div class="avatar-face">${player.avatar}</div>
-      <div class="avatar-name">${player.name}</div>
-      <div class="score-badge">${state.scores[player.id] || 0} pts</div>
+      <div class="avatar-face">${escHtml(player.avatar)}</div>
+      <div class="avatar-name">${escHtml(player.name)}</div>
+      <div class="score-badge">${state.scores[player.id] || 0} / ${state.targetScore} pts</div>
     `;
-    // Dealer badge on first player
-    if (player.seatIndex === 0) {
+    if (player.seatIndex === state.dealerIndex) {
       const badge = document.createElement('div');
       badge.className = 'dealer-badge';
       badge.textContent = 'DEALER';
       avatarDiv.querySelector('.avatar-face').appendChild(badge);
     }
 
-    // Hand
     const handDiv = document.createElement('div');
-    handDiv.className = `hand-container hand-${orient}`;
+    handDiv.className = player.isMe ? 'hand-container free-hand-surface' : `hand-container hand-${orient}`;
 
-    if (isMe && player.hand) {
-      // My cards — face up, clickable
+    if (player.isMe && player.hand) {
       player.hand.forEach((card, ci) => {
-        const cardEl = buildFaceCard(card, true);
-        cardEl.classList.add('card-in-hand', 'mine', 'card-dealt');
-        cardEl.style.animationDelay = `${ci * 0.04}s`;
-        if (selectedCardId === card.id) cardEl.classList.add('selected');
-        cardEl.addEventListener('click', () => onMyCardClick(card.id, state));
+        ensureLayout(card, ci);
+        const cardEl = buildFaceCard(card);
+        const layout = cardLayouts.get(card.id);
+        cardEl.classList.add('card-in-hand', 'mine');
+        cardEl.dataset.cardId = card.id;
+        cardEl.style.left = `${layout.x}px`;
+        cardEl.style.top = `${layout.y}px`;
+        cardEl.style.zIndex = layout.z;
+        if (selectedCardIds.has(card.id)) cardEl.classList.add('selected');
+        attachCardPointerHandlers(cardEl, card);
         handDiv.appendChild(cardEl);
       });
     } else {
-      // Other players — face down, stacked
-      const count = player.cardCount || 0;
-      const show = Math.min(count, orient === 'h' ? 10 : 8);
-      for (let c = 0; c < show; c++) {
+      const show = Math.min(player.cardCount || 0, orient === 'h' ? 10 : 8);
+      for (let i = 0; i < show; i++) {
         const cardEl = buildBackCard();
         cardEl.classList.add('card-in-hand');
         handDiv.appendChild(cardEl);
       }
     }
 
-    // Compose zone (avatar + hand)
-    // For top seats: avatar first (above), then hand below
-    // For bottom seat: hand first, then avatar below
-    // For left/right: avatar first, then hand to side
-    if (seatClass === 'seat-0' || seatClass === 'seat-6' || seatClass === 'seat-7') {
-      // bottom seats: hand on top, avatar below
+    if (seatClass === 'seat-0') {
       zone.appendChild(handDiv);
       zone.appendChild(avatarDiv);
     } else {
@@ -347,125 +299,290 @@ function renderTable(state) {
     }
 
     playerZonesEl.appendChild(zone);
-  }
+  });
 }
 
-function onMyCardClick(cardId, state) {
-  if (!isMyTurn) return;
+function renderMeldTable(state) {
+  meldTable.innerHTML = '';
+  if (!state.melds.length) {
+    const empty = document.createElement('div');
+    empty.className = 'meld-table-empty';
+    empty.textContent = 'No melds on the table yet';
+    meldTable.appendChild(empty);
+    return;
+  }
 
-  if (currentPhase === 'discard') {
-    // Select / confirm discard
-    if (selectedCardId === cardId) {
-      // Double-click = discard
-      socket.emit('discard', { cardId });
-      selectedCardId = null;
-    } else {
-      selectedCardId = cardId;
-      renderTable(state);
+  state.melds.forEach(meld => {
+    const group = document.createElement('div');
+    group.className = `meld-group${selectedMeldId === meld.id ? ' selected' : ''}`;
+    group.dataset.meldId = meld.id;
+    group.addEventListener('click', () => {
+      selectedMeldId = selectedMeldId === meld.id ? null : meld.id;
+      renderMeldTable(gameState);
+      updateActionBtns(gameState);
+    });
+
+    const label = document.createElement('div');
+    label.className = 'meld-label';
+    label.textContent = `${meldTypeLabel(meld.type)} ${meld.id}`;
+    group.appendChild(label);
+
+    const cards = document.createElement('div');
+    cards.className = 'meld-cards';
+    meld.cards.forEach(card => {
+      const cardEl = buildFaceCard(card);
+      cardEl.classList.add('meld-card');
+      cards.appendChild(cardEl);
+    });
+    group.appendChild(cards);
+    meldTable.appendChild(group);
+  });
+}
+
+function attachCardPointerHandlers(cardEl, card) {
+  cardEl.addEventListener('pointerdown', event => {
+    if (!isMyTurn) return;
+    const layout = cardLayouts.get(card.id);
+    const parentRect = cardEl.parentElement.getBoundingClientRect();
+    dragState = {
+      cardId: card.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: event.clientX - parentRect.left - layout.x,
+      offsetY: event.clientY - parentRect.top - layout.y,
+      moved: false
+    };
+    layout.z = ++zCounter;
+    cardEl.style.zIndex = layout.z;
+    cardEl.classList.add('dragging');
+    cardEl.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  cardEl.addEventListener('pointermove', event => {
+    if (!dragState || dragState.cardId !== card.id) return;
+    const parent = cardEl.parentElement;
+    const parentRect = parent.getBoundingClientRect();
+    const layout = cardLayouts.get(card.id);
+    const { width, height } = cardMetrics();
+    const maxX = Math.max(0, parent.clientWidth - width);
+    const maxY = Math.max(0, parent.clientHeight - height);
+    layout.x = clamp(event.clientX - parentRect.left - dragState.offsetX, 0, maxX);
+    layout.y = clamp(event.clientY - parentRect.top - dragState.offsetY, 0, maxY);
+    cardEl.style.left = `${layout.x}px`;
+    cardEl.style.top = `${layout.y}px`;
+    if (Math.abs(event.clientX - dragState.startX) > 4 || Math.abs(event.clientY - dragState.startY) > 4) {
+      dragState.moved = true;
+    }
+  });
+
+  cardEl.addEventListener('pointerup', event => finishCardPointer(event, cardEl, card));
+  cardEl.addEventListener('pointercancel', event => finishCardPointer(event, cardEl, card));
+}
+
+function finishCardPointer(event, cardEl, card) {
+  if (!dragState || dragState.cardId !== card.id) return;
+  cardEl.classList.remove('dragging');
+  cardEl.releasePointerCapture(event.pointerId);
+
+  if (dragState.moved) {
+    snapLayout(card.id);
+    swapWithNearbyCard(card.id);
+    renderTable(gameState);
+  } else {
+    toggleCardSelection(card.id);
+  }
+
+  dragState = null;
+}
+
+function toggleCardSelection(cardId) {
+  if (!isMyTurn) return;
+  if (selectedCardIds.has(cardId)) selectedCardIds.delete(cardId);
+  else selectedCardIds.add(cardId);
+  renderTable(gameState);
+  updateActionBtns(gameState);
+}
+
+function snapLayout(cardId) {
+  const layout = cardLayouts.get(cardId);
+  if (!layout) return;
+  if (Math.abs(layout.y - HAND_ROW_Y) < 26) layout.y = HAND_ROW_Y;
+}
+
+function swapWithNearbyCard(cardId) {
+  const layout = cardLayouts.get(cardId);
+  if (!layout) return;
+  for (const [otherId, other] of cardLayouts.entries()) {
+    if (otherId === cardId) continue;
+    const distance = Math.hypot(layout.x - other.x, layout.y - other.y);
+    if (distance < 34) {
+      [layout.x, other.x] = [other.x, layout.x];
+      [layout.y, other.y] = [other.y, layout.y];
+      return;
     }
   }
 }
 
-// ── Deck & Discard ─────────────────────────────────────────────────────────────
+function ensureLayout(card, index) {
+  if (cardLayouts.has(card.id)) return;
+  cardLayouts.set(card.id, {
+    x: 22 + index * 42,
+    y: HAND_ROW_Y,
+    z: ++zCounter
+  });
+}
+
+function reconcileLayouts(hand) {
+  const ids = new Set(hand.map(card => card.id));
+  for (const id of [...cardLayouts.keys()]) {
+    if (!ids.has(id)) cardLayouts.delete(id);
+  }
+}
+
+function reconcileSelection(hand) {
+  const ids = new Set(hand.map(card => card.id));
+  for (const id of [...selectedCardIds]) {
+    if (!ids.has(id)) selectedCardIds.delete(id);
+  }
+}
+
 function updateDeck(state) {
   deckCount.textContent = state.deckCount;
-  deckStack.style.opacity = state.deckCount > 0 ? '1' : '0.4';
-  deckStack.style.cursor = (isMyTurn && currentPhase === 'draw') ? 'pointer' : 'default';
+  deckStack.style.opacity = state.deckCount > 0 || state.discardCount > 1 ? '1' : '0.45';
+  deckStack.style.cursor = isMyTurn && currentPhase === 'draw' ? 'pointer' : 'default';
 }
 
 function updateDiscard(state) {
-  // Remove old face card if present
-  discardPile.querySelectorAll('.card').forEach(c => c.remove());
-
+  discardPile.querySelectorAll('.card').forEach(card => card.remove());
   if (state.topDiscard) {
     discardEmpty.style.display = 'none';
-    const cardEl = buildFaceCard(state.topDiscard, false);
+    const cardEl = buildFaceCard(state.topDiscard);
     cardEl.style.position = 'absolute';
-    cardEl.style.top = '0'; cardEl.style.left = '0';
+    cardEl.style.top = '0';
+    cardEl.style.left = '0';
     discardPile.appendChild(cardEl);
   } else {
     discardEmpty.style.display = 'flex';
   }
-
-  discardPile.style.cursor = (isMyTurn && currentPhase === 'draw' && state.discardCount > 0) ? 'pointer' : 'default';
+  discardPile.style.cursor = isMyTurn && currentPhase === 'draw' && state.discardCount > 0 ? 'pointer' : 'default';
 }
 
-// ── Status bar ────────────────────────────────────────────────────────────────
 function updateStatus(state) {
   const me = state.players.find(p => p.isMe);
   const current = state.players[state.currentTurn];
-
   if (!current) return;
 
   if (me && me.isTurn) {
     if (currentPhase === 'draw') {
-      statusBar.textContent = "It's your turn. Draw a card from the deck or the discard pile.";
+      statusBar.textContent = `Your turn: draw from the stock or discard pile. Wild joker rank is ${state.wildJokerRank}.`;
     } else {
-      statusBar.textContent = selectedCardId
-        ? "Click the same card again to discard it, or select a different card. Use 'Knock/Gin' if your deadwood ≤ 10."
-        : "Click a card in your hand to select it, then click again to discard it.";
+      statusBar.textContent = 'Play phase: make valid groups. Declaration needs 13 grouped cards, 2 sequences, and 1 pure sequence.';
     }
   } else {
-    statusBar.textContent = `Waiting for ${current.name} to ${currentPhase === 'draw' ? 'draw a card' : 'discard'}.`;
+    statusBar.textContent = `Waiting for ${current.name} to ${currentPhase === 'draw' ? 'draw' : 'play and discard'}.`;
   }
 }
 
-// ── Action buttons ─────────────────────────────────────────────────────────────
 function updateActionBtns(state) {
-  sortBtn.disabled = false;
-  knockBtn.disabled = !(isMyTurn && currentPhase === 'discard' && selectedCardId);
+  const selectedCount = selectedCardIds.size;
+  const selectedOne = selectedCount === 1;
+  const me = state?.players.find(p => p.isMe);
+  const canPlay = !!(isMyTurn && currentPhase === 'play');
+  const selectedCard = selectedOne ? [...selectedCardIds][0] : null;
+
+  meldBtn.disabled = !(canPlay && selectedCount >= 3);
+  layoffBtn.disabled = !(canPlay && selectedOne && selectedMeldId);
+  discardBtn.disabled = !(canPlay && selectedOne && selectedCard !== state.drawnDiscardCardId);
+  goOutBtn.disabled = !(canPlay && me && (
+    me.cardCount === 0 ||
+    (me.cardCount === 1 && selectedOne && selectedCard !== state.drawnDiscardCardId)
+  ));
+  sortBtn.disabled = !me || !me.hand || me.hand.length === 0;
 }
 
-knockBtn.addEventListener('click', () => {
-  if (!selectedCardId) return;
-  socket.emit('knock', { cardId: selectedCardId });
-  selectedCardId = null;
+meldBtn.addEventListener('click', () => {
+  if (selectedCardIds.size < 3) return;
+  socket.emit('createMeld', { cardIds: [...selectedCardIds] });
+  selectedCardIds.clear();
 });
 
-sortBtn.addEventListener('click', () => socket.emit('sortHand'));
+layoffBtn.addEventListener('click', () => {
+  if (selectedCardIds.size !== 1 || !selectedMeldId) return;
+  socket.emit('layoffCard', { cardId: [...selectedCardIds][0], meldId: selectedMeldId, position: 'auto' });
+  selectedCardIds.clear();
+});
 
-// ── Deck / Discard clicks ─────────────────────────────────────────────────────
+discardBtn.addEventListener('click', () => {
+  if (selectedCardIds.size !== 1) return;
+  socket.emit('discard', { cardId: [...selectedCardIds][0] });
+  selectedCardIds.clear();
+});
+
+goOutBtn.addEventListener('click', () => {
+  const selected = [...selectedCardIds];
+  socket.emit('goOut', { discardCardId: selected.length === 1 ? selected[0] : null });
+  selectedCardIds.clear();
+});
+
+sortBtn.addEventListener('click', () => arrangeHandBySort());
+
 deckStack.addEventListener('click', () => {
   if (!isMyTurn || currentPhase !== 'draw') return;
+  selectedCardIds.clear();
   socket.emit('drawDeck');
-  selectedCardId = null;
 });
 
 discardPile.addEventListener('click', () => {
   if (!isMyTurn || currentPhase !== 'draw') return;
   if (!gameState || !gameState.discardCount) return;
+  selectedCardIds.clear();
   socket.emit('drawDiscard');
-  selectedCardId = null;
 });
 
-// ── Card builders ─────────────────────────────────────────────────────────────
-const SUIT_SYMBOL = { S: '♠', H: '♥', D: '♦', C: '♣' };
-const SUIT_COLOR  = { S: 'black', H: 'red', D: 'red', C: 'black' };
+function arrangeHandBySort() {
+  const me = gameState?.players.find(p => p.isMe);
+  if (!me?.hand) return;
+  const sorted = [...me.hand].sort((a, b) => {
+    if (a.suit !== b.suit) return SUIT_ORDER.indexOf(a.suit) - SUIT_ORDER.indexOf(b.suit);
+    return RANK_ORDER.indexOf(a.rank) - RANK_ORDER.indexOf(b.rank);
+  });
+  sorted.forEach((card, index) => {
+    cardLayouts.set(card.id, {
+      x: 22 + index * 46,
+      y: HAND_ROW_Y,
+      z: ++zCounter
+    });
+  });
+  renderTable(gameState);
+}
 
-// Center pip for number cards
 function centerPips(rank, suit) {
+  if (rank === 'PJ') return '<span style="font-size:1.1rem">JOKER</span>';
   const sym = SUIT_SYMBOL[suit];
-  const faceSymbols = { J: '🃏', Q: '👑', K: '♔', A: sym };
+  const faceSymbols = { J: 'J', Q: 'Q', K: 'K', A: sym };
   if (faceSymbols[rank]) {
-    return `<span style="font-size:${rank==='A'?'1.8rem':'1.4rem'}">${faceSymbols[rank]}</span>`;
+    return `<span style="font-size:${rank === 'A' ? '1.8rem' : '1.5rem'}">${faceSymbols[rank]}</span>`;
   }
   return `<span style="font-size:1.1rem">${sym}</span>`;
 }
 
-function buildFaceCard(card, interactive) {
+function buildFaceCard(card) {
   const el = document.createElement('div');
   const color = SUIT_COLOR[card.suit] || 'black';
-  const sym = SUIT_SYMBOL[card.suit] || card.suit;
+  const sym = card.rank === 'PJ' ? '★' : (SUIT_SYMBOL[card.suit] || card.suit);
+  const rank = card.rank === 'PJ' ? 'JOKER' : card.rank;
   el.className = `card ${color}`;
   el.innerHTML = `
     <div class="card-face">
       <div class="card-corner-top">
-        <span class="card-rank">${card.rank}</span>
+        <span class="card-rank">${escHtml(rank)}</span>
         <span class="card-suit-small">${sym}</span>
       </div>
       <div class="card-center">${centerPips(card.rank, card.suit)}</div>
       <div class="card-corner-bottom">
-        <span class="card-rank">${card.rank}</span>
+        <span class="card-rank">${escHtml(rank)}</span>
         <span class="card-suit-small">${sym}</span>
       </div>
     </div>
@@ -476,29 +593,21 @@ function buildFaceCard(card, interactive) {
 function buildBackCard() {
   const el = document.createElement('div');
   el.className = 'card';
-  el.innerHTML = `<div class="card-back"><div class="card-back-inner"></div></div>`;
+  el.innerHTML = '<div class="card-back"><div class="card-back-inner"></div></div>';
   return el;
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
 function addChat(msg) {
   const div = document.createElement('div');
   div.className = 'chat-msg' + (msg.system ? ' system' : '');
   if (msg.system) {
-    div.textContent = `— ${msg.text} —`;
+    div.textContent = `- ${msg.text} -`;
   } else {
-    div.innerHTML = `<span class="chat-name">${msg.avatar || ''} ${msg.name}: </span>${escHtml(msg.text)}`;
+    div.innerHTML = `<span class="chat-name">${escHtml(msg.avatar || '')} ${escHtml(msg.name)}: </span>${escHtml(msg.text)}`;
   }
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-chatSend.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
 function sendChat() {
   const text = chatInput.value.trim();
@@ -507,15 +616,44 @@ function sendChat() {
   chatInput.value = '';
 }
 
-// ── Screen switch ─────────────────────────────────────────────────────────────
+function showError(message) {
+  lobbyError.textContent = message || '';
+  wError.textContent = message || '';
+  if (message && statusBar) statusBar.textContent = message;
+}
+
 function switchScreen(name) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
   document.getElementById(name).classList.add('active');
 }
 
-// ── Leave ─────────────────────────────────────────────────────────────────────
-tbLeave.addEventListener('click', () => {
-  if (confirm('Leave this room?')) location.reload();
-});
+function escHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function cardMetrics() {
+  const styles = getComputedStyle(document.documentElement);
+  return {
+    width: parseFloat(styles.getPropertyValue('--card-w')) || 72,
+    height: parseFloat(styles.getPropertyValue('--card-h')) || 100
+  };
+}
+
+function meldTypeLabel(type) {
+  if (type === 'pureSequence') return 'PURE SEQ';
+  if (type === 'impureSequence') return 'IMPURE SEQ';
+  return 'SET';
+}
+
+chatSend.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+tbLeave.addEventListener('click', () => { if (confirm('Leave this room?')) location.reload(); });
 goPlayAgain.addEventListener('click', () => location.reload());
